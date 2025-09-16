@@ -1,0 +1,16 @@
+spring:
+  application:
+    name: Notiva
+  ai:
+    openai:
+      api-key: ${OPEN_AI_KEY}
+      chat:
+        options:
+          model: ${OPEN_AI_MODEL}
+          temperature: 1
+          seed: 7
+aws:
+  defaultTextractRegion: ${AWS_DEFAULT_REGION}
+  defaultTextractEndpoint: ${AWS_DEFAULT_ENDPOINT}
+  defaultRekognitionRegion: ${AWS_DEFAULT_REKOGNITION_REGION}
+  defaultRekognitionEndpoint: ${AWS_DEFAULT_REKOGNITION_ENDPOINT}
