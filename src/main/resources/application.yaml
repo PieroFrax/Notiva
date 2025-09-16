@@ -11,6 +11,3 @@ spring:
           seed: 7
 aws:
   defaultTextractRegion: ${AWS_DEFAULT_REGION}
-  defaultTextractEndpoint: ${AWS_DEFAULT_ENDPOINT}
-  defaultRekognitionRegion: ${AWS_DEFAULT_REKOGNITION_REGION}
-  defaultRekognitionEndpoint: ${AWS_DEFAULT_REKOGNITION_ENDPOINT}

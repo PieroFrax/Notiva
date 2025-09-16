@@ -37,7 +37,7 @@ public class TextractServiceImpl implements TextractService {
 
     @Override
     public List<DocUnit> analyze(List<MultipartFile> files) throws IOException {
-        log.info("avvio analisi documentale ({} file)", files.size());
+        log.info("Avvio analisi documentale ({} file)", files.size());
         List<DocUnit> docUnits = new ArrayList<>();
 
         ObjectMapper mapper = new ObjectMapper();
@@ -77,6 +77,8 @@ public class TextractServiceImpl implements TextractService {
                 pageNumber++;
             }
         }
+
+        log.info("Analisi documentale terminata");
 
         return docUnits;
     }

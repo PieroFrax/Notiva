@@ -1,4 +1,4 @@
-package it.piero.notiva.service.controller;
+package it.piero.notiva.controller;
 
 import it.piero.notiva.model.DocUnit;
 import it.piero.notiva.service.definition.TextractService;
