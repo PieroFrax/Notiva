@@ -17,6 +17,7 @@ public class LlmExtractionController {
         this.fastExtractionService = fastExtractionService;
     }
 
+
     @PostMapping("extract")
     public ResponseEntity<ExtractionResult> analyze(@RequestBody DocUnitRequest request) {
         return ResponseEntity.ok(fastExtractionService.extract(request));

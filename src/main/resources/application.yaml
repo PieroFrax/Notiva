@@ -9,5 +9,6 @@ spring:
           model: ${OPEN_AI_MODEL}
           temperature: 1
           seed: 7
+          logprobs: true
 aws:
   defaultTextractRegion: ${AWS_DEFAULT_REGION}
