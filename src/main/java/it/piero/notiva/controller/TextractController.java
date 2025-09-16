@@ -23,4 +23,9 @@ public class TextractController {
     public ResponseEntity<List<DocUnit>> analyze(@RequestBody List<MultipartFile> files) throws Exception {
         return ResponseEntity.ok(textractService.analyze(files));
     }
+
+    @PostMapping("analyze-text")
+    public ResponseEntity<String> analyzeText(@RequestBody List<MultipartFile> files) throws Exception {
+        return ResponseEntity.ok(textractService.analyzeText(files));
+    }
 }

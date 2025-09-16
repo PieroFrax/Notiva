@@ -9,5 +9,6 @@ import java.util.List;
 public interface TextractService {
 
     List<DocUnit> analyze(List<MultipartFile> file) throws IOException;
+    String analyzeText(List<MultipartFile> files) throws Exception;
 
 }

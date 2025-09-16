@@ -2,6 +2,7 @@ package it.piero.notiva.service.implementation;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import it.piero.notiva.model.DocUnitRequest;
+import it.piero.notiva.model.DocUnitTextRequest;
 import it.piero.notiva.model.ExtractionResult;
 import it.piero.notiva.utils.LogProbsUtils;
 import org.springframework.ai.chat.client.ChatClient;
@@ -132,6 +133,104 @@ public class FastExtractionService {
         """;
 
     public ExtractionResult extract(DocUnitRequest request) {
+
+
+        Resource userResource = toResource(request);
+
+        String systemPrompt = SYSTEM.replace("[istruzioni]", request.getNotes());
+
+        ChatResponse call = chatClient
+                .prompt()
+                .system(systemPrompt)
+                .user(userResource)
+                .call()
+                .chatResponse();
+
+        String output = call.getResult().getOutput().getText();
+
+        ExtractionResult result;
+        try {
+            result = mapper.readValue(output, ExtractionResult.class);
+        } catch (Exception e) {
+            throw new RuntimeException("Parse JSON fallito. Output:\n" + output, e);
+        }
+
+        LogProbs lp = LogProbsUtils.asLogProbs(call.getResult().getMetadata().get("logprobs"), mapper);
+        if (lp == null || result.getExtractions() == null || result.getExtractions().isEmpty()) {
+            return result;
+        }
+
+        List<LogProbsUtils.Range> windows = LogProbsUtils.jsonStringValueWindows(lp, "value");
+
+        var toks = LogProbsUtils.content(lp);
+        var full = LogProbsUtils.text(lp);
+
+        int n = toks.size();
+        int[] start = new int[n];
+        int[] end   = new int[n];
+        int pos = 0;
+        for (int i = 0; i < n; i++) {
+            start[i] = pos;
+            pos += toks.get(i).token().length();
+            end[i] = pos;
+        }
+
+        int fromChar = 0;
+
+        for (var item : result.getExtractions()) {
+            String v = item.getValue();
+
+            if (v == null || "NOT_FOUND".equals(v)) {
+                item.setConfidence(0.0);
+                continue;
+            }
+
+            String pattern = "\"value\"\\s*:\\s*\"" + java.util.regex.Pattern.quote(v) + "\"";
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile(pattern, java.util.regex.Pattern.DOTALL)
+                    .matcher(full);
+
+            if (!m.find(fromChar)) {
+                continue;
+            }
+
+            java.util.regex.Matcher m2 = java.util.regex.Pattern
+                    .compile("\"value\"\\s*:\\s*\"(" + java.util.regex.Pattern.quote(v) + ")\"",
+                            java.util.regex.Pattern.DOTALL)
+                    .matcher(full);
+
+            if (!m2.find(fromChar)) {
+                continue;
+            }
+
+            int valStartChar = m2.start(1);
+            int valEndChar   = m2.end(1);
+            fromChar = valEndChar;
+
+            int sTok = charToTokenIndex(start, end, valStartChar);
+            int eTok = charToTokenIndexEnd(start, end, valEndChar);
+
+            if (sTok >= 0 && eTok > sTok) {
+                var range = new LogProbsUtils.Range(sTok, eTok);
+
+                double confStrict = LogProbsUtils.windowConfidenceStrictTuned(
+                        toks, range,
+                        1.8,
+                        2,
+                        3,
+                        0.6
+                );
+
+                if (!Double.isNaN(confStrict)) {
+                    item.setConfidence(confStrict);
+                }
+            }
+        }
+
+
+        return result;
+    }
+
+    public ExtractionResult extractWithText(DocUnitTextRequest request) {
 
 
         Resource userResource = toResource(request);

@@ -8,7 +8,6 @@ import it.piero.notiva.model.DocUnit;
 import it.piero.notiva.model.Region;
 import it.piero.notiva.service.definition.TextractService;
 import it.piero.notiva.utils.PdfUtils;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -24,7 +23,6 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class TextractServiceImpl implements TextractService {
 
     private final TextractClient textractClient;
@@ -34,6 +32,11 @@ public class TextractServiceImpl implements TextractService {
 
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .setSerializationInclusion(JsonInclude.Include.NON_NULL);
+
+    public TextractServiceImpl(TextractClient textractClient, PdfUtils pdfUtils) {
+        this.textractClient = textractClient;
+        this.pdfUtils = pdfUtils;
+    }
 
     @Override
     public List<DocUnit> analyze(List<MultipartFile> files) throws IOException {
@@ -83,6 +86,177 @@ public class TextractServiceImpl implements TextractService {
         return docUnits;
     }
 
+    @Override
+    public String analyzeText(List<MultipartFile> files) throws IOException {
+        log.info("Avvio analisi documentale ({} file)", files == null ? 0 : files.size());
+
+        if (files == null || files.isEmpty()) {
+            log.warn("Nessun file in input.");
+            return "";
+        }
+
+        StringBuilder textOut = new StringBuilder();
+
+        for (MultipartFile fileItem : files) {
+            if (fileItem == null || fileItem.isEmpty()) {
+                log.warn("File vuoto o nullo, salto.");
+                continue;
+            }
+
+            List<byte[]> pages = pdfUtils.renderPdfToImages(fileItem.getBytes(), 300);
+
+            for (int i = 0; i < pages.size(); i++) {
+                int pageNumber = i + 1;
+                byte[] pageBytes = pages.get(i);
+
+                Document document = Document.builder()
+                        .bytes(SdkBytes.fromByteArray(pageBytes))
+                        .build();
+
+                DetectDocumentTextRequest req = DetectDocumentTextRequest.builder()
+                        .document(document)
+                        .build();
+
+                DetectDocumentTextResponse resp = textractClient.detectDocumentText(req);
+
+                List<Block> lines = resp.blocks().stream()
+                        .filter(b -> b.blockType() == BlockType.LINE)
+                        .filter(b -> b.geometry() != null && b.geometry().boundingBox() != null)
+                        .sorted(Comparator
+                                .comparing((Block b) -> b.geometry().boundingBox().top())
+                                .thenComparing(b -> b.geometry().boundingBox().left()))
+                        .collect(Collectors.toList());
+
+                final float yTol = 0.012f;
+                final float minGap = 0.06f;
+                final int   labelMaxLen = 48;
+
+                List<List<Block>> rows = new ArrayList<>();
+                for (Block b : lines) {
+                    float top = b.geometry().boundingBox().top();
+                    if (rows.isEmpty()) {
+                        rows.add(new ArrayList<>(Arrays.asList(b)));
+                        continue;
+                    }
+                    List<Block> last = rows.get(rows.size() - 1);
+                    float lastTop = last.get(0).geometry().boundingBox().top();
+                    if (Math.abs(top - lastTop) <= yTol) {
+                        last.add(b);
+                    } else {
+                        last.sort(Comparator.comparing(x -> x.geometry().boundingBox().left()));
+                        rows.add(new ArrayList<>(Arrays.asList(b)));
+                    }
+                }
+                if (!rows.isEmpty()) {
+                    List<Block> last = rows.get(rows.size() - 1);
+                    last.sort(Comparator.comparing(x -> x.geometry().boundingBox().left()));
+                }
+
+                StringBuilder pageOut = new StringBuilder();
+                for (List<Block> row : rows) {
+                    if (row == null || row.isEmpty()) continue;
+
+                    List<Cell> cells = new ArrayList<>(row.size());
+                    for (Block b : row) {
+                        String t = b.text() == null ? "" : b.text().trim();
+                        if (t.isEmpty()) continue;
+                        BoundingBox bb = b.geometry().boundingBox();
+                        float left = bb.left();
+                        float right = bb.left() + bb.width();
+                        cells.add(new Cell(t, left, right));
+                    }
+                    if (cells.isEmpty()) continue;
+
+                    if (cells.size() == 1) {
+                        pageOut.append(cells.get(0).t).append("\n");
+                        continue;
+                    }
+
+                    List<Cell> merged = new ArrayList<>();
+                    Cell acc = cells.get(0);
+                    for (int c = 1; c < cells.size(); c++) {
+                        Cell nxt = cells.get(c);
+                        if (nxt.left - acc.right < minGap) {
+                            acc = new Cell(
+                                    (acc.t + " " + nxt.t).replaceAll("\\s+", " ").trim(),
+                                    acc.left,
+                                    Math.max(acc.right, nxt.right)
+                            );
+                        } else {
+                            merged.add(acc);
+                            acc = nxt;
+                        }
+                    }
+                    merged.add(acc);
+                    cells = merged;
+
+                    if (cells.size() >= 2) {
+                        Cell first = cells.get(0);
+                        Cell second = cells.get(1);
+
+                        boolean spaced   = (second.left - first.right) >= minGap;
+                        boolean labelish = looksLikeLabel(first.t, labelMaxLen);
+                        boolean valueish = looksLikeValue(second.t);
+
+                        if (spaced && (labelish || !valueish)) {
+                            StringBuilder rowOut = new StringBuilder();
+                            rowOut.append(stripTrailingColon(first.t)).append(": ").append(second.t);
+                            for (int c = 2; c < cells.size(); c++) {
+                                rowOut.append(" ").append(cells.get(c).t);
+                            }
+                            pageOut.append(rowOut.toString().replaceAll("\\s+", " ").trim()).append("\n");
+                            continue;
+                        }
+                    }
+
+                    String joined = cells.stream().map(c -> c.t)
+                            .collect(Collectors.joining(" "));
+                    pageOut.append(joined.replaceAll("\\s+", " ").trim()).append("\n");
+                }
+
+                textOut.append(pageOut.toString().trim()).append("\n\n");
+                log.debug("Pagina {}: linee={}", pageNumber, lines.size());
+            }
+        }
+
+        log.info("Analisi documentale terminata. Tot caratteri: {}", textOut.length());
+        return textOut.toString().trim();
+    }
+
+    private static class Cell {
+        final String t;
+        final float left;
+        final float right;
+        Cell(String t, float left, float right) {
+            this.t = t;
+            this.left = left;
+            this.right = right;
+        }
+    }
+
+    static boolean looksLikeLabel(String s, int maxLen) {
+        if (s == null) return false;
+        String t = s.trim();
+        if (t.isEmpty()) return false;
+        if (t.endsWith(":")) return true;
+        if (t.length() <= 3) return true;
+        if (t.length() <= maxLen && t.equals(t.toUpperCase())) return true;
+        return !t.matches(".*\\d.*");
+    }
+
+    static boolean looksLikeValue(String s) {
+        if (s == null) return false;
+        String t = s.trim();
+        if (t.isEmpty()) return false;
+        if (t.contains("€")) return true;
+        if (t.matches(".*\\d.*")) return true;
+        return t.split("\\s+").length > 1 && !t.equals(t.toUpperCase());
+    }
+
+    static String stripTrailingColon(String s) {
+        if (s == null) return "";
+        return s.endsWith(":") ? s.substring(0, s.length() - 1).trim() : s.trim();
+    }
 
 
     private String toJsonl(AnalyzeDocumentResponse response, int page, String origin) {

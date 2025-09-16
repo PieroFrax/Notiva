@@ -38,6 +38,7 @@ public class DocUnit {
                 .build();
     }
 
+
     public static DocUnit tableUnit(Integer page, BBox bbox, List<List<String>> rows,
                                     String blockId, Float confidence, Region region, String origin) {
         return DocUnit.builder()

@@ -1,9 +1,6 @@
 package it.piero.notiva.controller;
 
-import it.piero.notiva.model.DocUnit;
-import it.piero.notiva.model.DocUnitRequest;
-import it.piero.notiva.model.ExtractionResult;
-import it.piero.notiva.model.RunAnalisisRequest;
+import it.piero.notiva.model.*;
 import it.piero.notiva.service.definition.TextractService;
 import it.piero.notiva.service.implementation.FastExtractionService;
 import it.piero.notiva.utils.CreateDocUnitUtils;
@@ -44,5 +41,23 @@ public class AnalizeController {
         List<DocUnit> docUnits = textractService.analyze(request.getFiles());
         DocUnitRequest docUnitRequest = createDocUnitUtils.createDocUnitRequest(request, docUnits);
         return ResponseEntity.ok(fastExtractionService.extract(docUnitRequest));
+    }
+
+    @PostMapping("/run-text")
+    public ResponseEntity<ExtractionResult> analyzeText(@RequestBody RunAnalisisRequest request) throws Exception {
+
+        String docUnits = textractService.analyzeText(request.getFiles());
+        DocUnitTextRequest docUnitRequest = createDocUnitUtils.createDocUnitRequestWithText(request, docUnits);
+        return ResponseEntity.ok(fastExtractionService.extractWithText(docUnitRequest));
+    }
+
+    @PostMapping(
+            value = "/run-test-text",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    public ResponseEntity<ExtractionResult> analyzeTestText(@ModelAttribute RunAnalisisRequest request) throws Exception {
+        String docUnits = textractService.analyzeText(request.getFiles());
+        DocUnitTextRequest docUnitRequest = createDocUnitUtils.createDocUnitRequestWithText(request, docUnits);
+        return ResponseEntity.ok(fastExtractionService.extractWithText(docUnitRequest));
     }
 }
